@@ -1,0 +1,776 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The King's Road — Level 1: The Countryside</title>
+<style>
+  :root{ --bg:#0b0b14; --panel:#12121f; --amber:#ffcf6f; --dim:#8a8a9a; --green:#7dd97d; --red:#ff6b6b; --blue:#7fb8ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--amber);font-family:"Courier New",Courier,monospace;display:flex;justify-content:center;min-height:100vh}
+  #game{width:min(680px,100vw);padding:8px;display:flex;flex-direction:column;gap:8px}
+  #title{ text-align:center;letter-spacing:3px;font-weight:bold;color:var(--blue);font-size:14px;padding-top:4px }
+  #screenwrap{position:relative;border:3px solid #2a2a44;border-radius:4px;overflow:hidden;background:#000}
+  canvas{display:block;width:100%;image-rendering:pixelated}
+  #scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 1px,transparent 1px 3px)}
+  #caption{position:absolute;left:0;right:0;bottom:0;padding:3px 8px;font-size:12px;color:#fff;background:rgba(0,0,0,.45);text-shadow:1px 1px 0 #000}
+  #status{display:flex;align-items:center;gap:10px;background:var(--panel);border:2px solid #2a2a44;border-radius:4px;padding:6px 10px;font-size:13px;flex-wrap:wrap}
+  #hearts{letter-spacing:2px;font-size:15px}
+  #hearts .h{color:var(--red)} #hearts .e{color:#3a3a55}
+  #timeod{color:var(--blue)} #coins{color:var(--amber)}
+  #inv{color:var(--dim);font-size:12px;flex-basis:100%;line-height:1.5}
+  #inv b{color:var(--green);font-weight:normal}
+  #log{background:var(--panel);border:2px solid #2a2a44;border-radius:4px;padding:10px 12px;height:230px;overflow-y:auto;font-size:13px;line-height:1.55;white-space:pre-wrap}
+  #log .you{color:#9fd0ff}
+  #log .sys{color:var(--amber)}
+  #log .hint{color:#c9a0ff;font-style:italic}
+  #log .bad{color:var(--red)}
+  #log .good{color:var(--green)}
+  #log .story{color:#ffe9b0}
+  #log .dim{color:var(--dim)}
+  #inputrow{display:flex;gap:8px}
+  #cmd{flex:1;background:#000;border:2px solid #2a2a44;border-radius:4px;color:#fff;font-family:inherit;font-size:14px;padding:8px 10px;outline:none}
+  #cmd:focus{border-color:var(--blue)}
+  #gobtn{background:#2a2a44;border:2px solid #3a3a5c;color:var(--amber);font-family:inherit;font-size:13px;padding:8px 14px;border-radius:4px;cursor:pointer}
+  #gobtn:active{background:#3a3a5c}
+  #foot{color:var(--dim);font-size:11px;text-align:center;padding-bottom:8px}
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="title">⚔ THE KING'S ROAD ⚔<br><span style="font-size:11px;color:var(--dim)">LEVEL 1 · THE COUNTRYSIDE</span></div>
+  <div id="screenwrap">
+    <canvas id="cv" width="160" height="90"></canvas>
+    <div id="scan"></div>
+    <div id="caption"></div>
+  </div>
+  <div id="status">
+    <span id="hearts"></span>
+    <span id="timeod"></span>
+    <span id="coins"></span>
+    <span id="inv"></span>
+  </div>
+  <div id="log"></div>
+  <div id="inputrow">
+    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="What do you do? (type 'help' for basics)">
+    <button id="gobtn">▶</button>
+  </div>
+  <div id="foot">turn-based · type commands like "go north", "look", "take", "talk", "use" · "hint" if lost</div>
+</div>
+<script>
+"use strict";
+/* ============ CANVAS / PIXEL HELPERS ============ */
+const cv=document.getElementById("cv"),ctx=cv.getContext("2d");
+function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),Math.max(1,Math.round(w)),Math.max(1,Math.round(h)));}
+function dith(x,y,w,h,c){for(let j=0;j<h;j++)for(let i=0;i<w;i++)if((i+j)%2===0)px(x+i,y+j,1,1,c);}
+/* time-of-day sky palettes: [top, bottom, sunColor, lightMask] */
+const PHASES=["dawn","day","dusk","night"];
+const SKY={dawn:["#5a4a7a","#e8926a","#ffd9a0",null],day:["#4a90d9","#8fd0f0","#fff2a8",null],
+  dusk:["#3a3060","#d96a4a","#ffb060",null],night:["#0a0a2a","#1a1a4a","#e8e8ff","rgba(5,5,30,0.45)"]};
+function phase(){return PHASES[Math.floor((S.turn%48)/12)];}
+function sky(horizon){const p=SKY[phase()];const h=horizon||46;
+  for(let y=0;y<h;y++){px(0,y,160,1,y<h/2?p[0]:p[1]);}
+  dith(0,Math.floor(h/2)-3,160,6,p[0]);
+  if(phase()==="night"){for(let i=0;i<26;i++){px((i*61+13)%160,(i*37+5)%(h-8),1,1,"#e8e8ff");}
+    px(126,8,7,7,"#e8e8d8");px(124,7,3,3,SKY.night[0]);}
+  else{px(phase()==="dusk"?18:126,phase()==="dawn"?12:8,8,8,p[2]);}
+  if(phase()!=="night"){px(30,10,14,3,"#ffffff");px(34,8,8,3,"#ffffff");px(90,16,12,3,"#f0f0f8");}}
+function nightMask(){const m=SKY[phase()][3];if(m){ctx.fillStyle=m;ctx.fillRect(0,0,160,90);}}
+function grass(y,c1,c2){px(0,y,160,90-y,c1);for(let i=0;i<40;i++){px((i*23+7)%160,y+2+(i*11)%(86-y),2,1,c2);}}
+function hillsFar(y,c){for(let x=0;x<160;x++){const h=Math.round(4*Math.sin(x/17)+3*Math.sin(x/7+2));px(x,y-h,1,h+6,c);}}
+function tree(x,y,s,leaf,trunk){px(x-1,y-s*2,3,s*2,trunk||"#6b4a2a");
+  px(x-s,y-s*3.4,s*2+1,s*1.6,leaf);px(x-s+1,y-s*4,s*2-1,s,leaf);px(x-Math.floor(s/2),y-s*4.6,s,s*0.8,leaf);}
+function pine(x,y,s,c){px(x,y-s*3,1,s*3,"#4a3520");for(let i=0;i<s*2.5;i++){const w=1+Math.floor(i*0.8);px(x-w,y-s*3-s*2.5+i,w*2+1,1,c);}}
+function hut(x,y,w,h){px(x,y-h,w,h,"#8a6a45");px(x+2,y-h+2,w-4,1,"#6b4a2a");
+  for(let i=0;i<=Math.floor(w/2)+1;i++){px(x-2+i,y-h-Math.floor(w/2)-1+i,w+4-i*2,1,"#b8934a");}
+  px(x+Math.floor(w/2)-2,y-6,4,6,"#3a2a1a");px(x+2,y-h+4,3,3,"#ffd97a");}
+function castleFar(x,y){const c="#8a8aa8",d="#6a6a88";
+  px(x,y-10,4,10,c);px(x+12,y-12,5,12,c);px(x+24,y-9,4,9,c);
+  px(x+4,y-6,8,6,d);px(x+17,y-6,7,6,d);
+  px(x,y-11,1,1,c);px(x+2,y-11,1,1,c);px(x+12,y-13,1,1,c);px(x+15,y-13,1,1,c);px(x+24,y-10,1,1,c);
+  px(x+13,y-16,1,4,"#5a5a78");px(x+14,y-16,3,2,"#d94a4a");}
+function figure(x,y,tunic,hood){px(x,y-6,2,3,tunic);px(x,y-3,1,3,"#4a3a5a");px(x+1,y-3,1,3,"#4a3a5a");
+  px(x,y-8,2,2,"#e8b088");if(hood)px(x-1,y-9,4,2,tunic);}
+function wolfSprite(x,y){const c="#7a7a8a";px(x,y-4,7,3,c);px(x+6,y-6,3,3,c);px(x+8,y-7,1,1,c);
+  px(x,y-1,1,1,"#5a5a6a");px(x+2,y-1,1,1,"#5a5a6a");px(x+5,y-1,1,1,"#5a5a6a");px(x-2,y-5,2,1,c);px(x+7,y-6,1,1,"#ffd94a");}
+function dogSprite(x,y){const c="#b8934a";px(x,y-3,5,2,c);px(x+4,y-5,2,2,c);px(x,y-1,1,1,c);px(x+3,y-1,1,1,c);px(x-1,y-4,1,2,c);}
+function water(x,y,w,h){px(x,y,w,h,"#3a6ab8");for(let i=0;i<Math.floor(w*h/14);i++){px(x+(i*17+3)%w,y+(i*7+1)%h,2,1,"#7fb8ff");}}
+function fence(x,y,w){for(let i=0;i<w;i+=6){px(x+i,y-4,1,4,"#8a6a45");}px(x,y-3,w,1,"#8a6a45");}
+function path(x1,w1,y1,x2,w2,y2,c){for(let y=y1;y<y2;y++){const t=(y-y1)/(y2-y1);const x=x1+(x2-x1)*t,w=w1+(w2-w1)*t;px(x-w/2,y,w,1,c);}}
+/* ============ SCENES ============ */
+const SCENES={
+meadow(){sky(48);hillsFar(46,"#5a8a5a");grass(48,"#5aa04a","#7dd97d");
+  path(80,10,60,80,26,90,"#b8a06a");
+  tree(20,50,3,"#3a7a3a");tree(145,52,2,"#3a7a3a");
+  for(let i=0;i<14;i++){px((i*29+11)%150+4,52+(i*13)%34,1,1,["#ff6b9d","#ffd94a","#e8e8ff"][i%3]);}
+  px(112,44,6,10,"#8a8aa8");px(113,43,4,1,"#8a8aa8");px(114,47,2,1,"#5a5a78");px(113,50,4,1,"#5a5a78");
+  if(!S.flags.pack){px(60,68,7,5,"#d94a4a");px(61,66,5,2,"#a83a3a");px(62,69,3,2,"#ffd94a");}
+  figure(84,72,"#4a6ad9",true);},
+hill(){sky(42);grass(60,"#6aa84a","#8fd97d");
+  for(let x=0;x<160;x++){const h=Math.round(18*Math.sin((x+30)/60));if(h>0)px(x,60-h,1,h,"#6aa84a");}
+  tree(80,46,6,"#2a6a2a","#5a3a20");px(74,28,3,2,"#2a6a2a");
+  if(S.flags.sawCastle){castleFar(120,26);px(24,30,10,6,"#9a9ab0");px(26,28,2,2,"#8a8aa8");}
+  px(30,58,4,2,"#8a6a45");
+  figure(66,58,"#4a6ad9",true);nightMask();},
+forest(){sky(20);px(0,18,160,72,"#1a3a24");
+  for(let i=0;i<12;i++){pine(8+i*14,86-(i%3)*8,4+(i%3),["#2a5a34","#1f4a2a","#245030"][i%3]);}
+  path(80,14,58,80,30,90,"#3a2a1a");
+  for(let i=0;i<8;i++){px((i*37+15)%150,80+(i%2)*4,2,1,"#4a3a2a");}
+  if(S.flags.yarrowHere&&!S.flags.tookYarrow){px(28,78,1,4,"#5a8a4a");px(26,76,5,2,"#e8e8ff");}
+  if(S.encounter==="wolf")wolfSprite(96,76);
+  if(S.flags.wolfTamed&&S.loc==="forest")wolfSprite(66,80);
+  figure(78,76,"#4a6ad9",true);nightMask();},
+clearing(){sky(40);grass(44,"#4a8a3a","#6ab85a");
+  pine(12,50,4,"#2a5a34");pine(148,52,5,"#245030");pine(30,46,3,"#2a5a34");
+  hut(88,74,26,16);
+  px(70,60,8,5,"#7a7a8a");px(72,58,4,2,"#7a7a8a");px(73,54,2,4,"#aaaacc");
+  if(S.flags.metHermit)figure(80,74,"#8a7a5a",true);
+  fence(20,80,40);figure(50,78,"#4a6ad9",true);nightMask();},
+stream(){sky(44);hillsFar(42,"#5a8a5a");grass(46,"#5aa04a","#7dd97d");
+  water(0,62,160,12);px(0,60,160,2,"#b8a06a");px(0,74,160,2,"#b8a06a");
+  px(70,64,6,2,"#8a8aa8");px(90,66,5,2,"#8a8aa8");px(50,68,5,2,"#8a8aa8");
+  tree(18,54,3,"#3a7a3a");px(140,50,3,8,"#8a6a45");px(136,46,11,5,"#3a7a3a");
+  for(let i=0;i<5;i++)px(20+i*26,63+(i%2)*6,2,1,"#e8f4ff");
+  figure(60,58,"#4a6ad9",true);if(S.flags.wolfTamed)dogSprite(48,58);nightMask();},
+marsh(){sky(38);px(0,36,160,54,"#4a5a3a");
+  for(let i=0;i<9;i++){water(8+(i*33)%130,44+(i*17)%38,14,4);}
+  for(let i=0;i<14;i++){px((i*27+9)%156,40+(i*19)%44,1,5,"#6a7a4a");}
+  pine(20,40,3,"#3a4a30");pine(140,44,4,"#3a4a30");
+  if(!S.flags.tookMoonwort){px(110,70,1,5,"#5a8a4a");px(108,68,5,3,"#b8e8ff");}
+  if(phase()==="night"){px(70,50,2,2,"#aaffcc");px(100,60,2,2,"#aaffcc");}
+  px(0,30,160,8,"#8a8a9a");dith(0,34,160,8,"#4a5a3a");
+  figure(40,80,"#4a6ad9",true);nightMask();},
+farm(){sky(42);hillsFar(40,"#5a8a5a");grass(44,"#6aa84a","#8fd97d");
+  hut(20,66,30,18);px(96,50,34,18,"#a83a3a");px(94,48,38,4,"#7a2a2a");px(108,58,10,10,"#5a2020");
+  fence(60,74,70);path(50,8,68,50,16,90,"#b8a06a");
+  for(let i=0;i<4;i++){px(64+i*16,78,4,2,"#f0f0e8");px(65+i*16,76,2,2,"#f0f0e8");}
+  if(S.flags.metFarmer)figure(56,66,"#8a5a3a",false);
+  dogSprite(70,68);figure(44,80,"#4a6ad9",true);nightMask();},
+village(){sky(40);hillsFar(38,"#5a8a5a");grass(42,"#6aa84a","#8fd97d");
+  hut(10,62,24,16);hut(120,64,28,18);hut(70,56,22,14);
+  px(48,40,3,18,"#8a8aa8");px(44,36,11,6,"#8a8aa8");px(48,32,3,4,"#8a8aa8");px(49,30,1,2,"#d9d9e8");
+  path(80,12,58,80,34,90,"#b8a06a");
+  px(88,70,8,6,"#7a7a8a");px(90,68,4,2,"#5a5a78");
+  figure(30,74,"#a85a7a",false);figure(100,72,"#5a8a5a",false);figure(66,68,"#8a5a3a",false);
+  figure(78,80,"#4a6ad9",true);if(S.flags.wolfTamed)dogSprite(90,82);nightMask();},
+road(){sky(44);hillsFar(42,"#5a8a5a");grass(46,"#5aa04a","#7dd97d");
+  path(80,20,46,80,44,90,"#c8b07a");px(58,46,44,1,"#a8905a");
+  px(30,58,5,9,"#8a8aa8");px(31,56,3,2,"#8a8aa8");px(31,60,3,1,"#5a5a78");px(31,62,3,1,"#5a5a78");
+  castleFar(112,30);tree(16,50,3,"#3a7a3a");tree(146,52,3,"#3a7a3a");
+  if(S.encounter==="bandits"){figure(96,66,"#3a3a3a",true);figure(106,70,"#3a3a3a",true);}
+  figure(76,76,"#4a6ad9",true);if(S.flags.wolfTamed)dogSprite(62,78);nightMask();},
+tower(){sky(36);hillsFar(34,"#4a6a4a");grass(40,"#5a8a4a","#6aa85a");
+  px(60,14,26,50,"#7a7a8a");px(60,14,26,3,"#5a5a6a");
+  px(62,10,4,4,"#7a7a8a");px(70,8,6,6,"#7a7a8a");px(80,11,4,3,"#7a7a8a");
+  px(66,30,5,7,"#2a2a3a");px(76,44,5,7,"#2a2a3a");px(68,56,9,8,"#2a2a3a");
+  px(88,52,18,4,"#6a6a7a");px(50,58,8,3,"#6a6a7a");dith(60,20,26,44,"#6a6a7a");
+  px(44,66,10,3,"#8a8a9a");
+  if(S.flags.knightMet&&!S.flags.knightHealed){figure(100,74,"#b8b8c8",false);px(100,70,2,1,"#d94a4a");}
+  if(S.flags.knightHealed)figure(100,72,"#b8b8c8",false);
+  figure(76,78,"#4a6ad9",true);if(S.flags.wolfTamed)dogSprite(60,80);nightMask();},
+gate(){sky(30);
+  px(0,28,160,10,"#9a9ab0");
+  px(20,12,24,66,"#8a8aa8");px(116,12,24,66,"#8a8aa8");
+  for(let i=0;i<6;i++){px(20+i*4,10,2,3,"#8a8aa8");px(116+i*4,10,2,3,"#8a8aa8");}
+  px(44,26,72,52,"#7a7a98");for(let i=0;i<9;i++)px(44+i*8,24,4,3,"#7a7a98");
+  px(64,46,32,32,"#3a2a1a");px(64,46,32,3,"#2a1a10");
+  for(let i=0;i<4;i++){px(66+i*8,46,2,32,"#5a4a30");}
+  px(78,20,4,10,"#5a5a78");px(82,20,7,5,"#d94a4a");
+  dith(20,16,24,60,"#7a7a98");dith(116,16,24,60,"#7a7a98");
+  figure(56,84,"#8a3a3a",false);px(55,74,1,8,"#c8c8d8");figure(102,84,"#8a3a3a",false);px(104,74,1,8,"#c8c8d8");
+  path(80,30,78,80,50,90,"#c8b07a");
+  figure(78,86,"#4a6ad9",true);if(S.flags.wolfTamed)dogSprite(64,88);nightMask();},
+win(){px(0,0,160,90,"#2a2a4a");
+  px(0,60,160,30,"#8a8aa8");for(let i=0;i<20;i++)px(i*8,58,6,2,"#9a9ab0");
+  px(30,20,100,40,"#7a7a98");px(40,30,80,30,"#8a8aa8");
+  px(50,12,6,3,"#d94a4a");px(104,12,6,3,"#d94a4a");px(50,8,1,7,"#5a5a78");px(104,8,1,7,"#5a5a78");
+  for(let i=0;i<5;i++){px(44+i*16,34,6,10,"#ffd97a");}
+  figure(60,80,"#4a6ad9",true);figure(72,78,"#b8b8c8",false);figure(90,80,"#8a3a3a",false);
+  if(S.flags.wolfTamed)dogSprite(46,82);
+  ctx.fillStyle="#ffd94a";ctx.font="8px monospace";ctx.fillText("LEVEL COMPLETE!",44,52);},
+dead(){px(0,0,160,90,"#0a0a12");px(0,70,160,20,"#1a1a24");
+  px(76,40,8,26,"#4a4a5a");px(70,48,20,5,"#4a4a5a");
+  for(let i=0;i<14;i++)px((i*61+13)%160,(i*37+5)%40,1,1,"#3a3a5a");
+  ctx.fillStyle="#ff6b6b";ctx.font="8px monospace";ctx.fillText("YOU HAVE FALLEN",48,24);}
+};
+const CAPTIONS={meadow:"A sunlit meadow",hill:"Old Oak Hill",forest:"The dark forest",clearing:"A hermit's clearing",
+stream:"A bright stream",marsh:"The grey marsh",farm:"Hearthstead Farm",village:"Millbrook village",
+road:"The King's Road",tower:"A ruined watchtower",gate:"The castle gate"};
+/*APPEND_SCENES_END*/
+/* ============ GAME STATE & WORLD DATA ============ */
+const S={loc:"meadow",hp:6,maxHp:6,coins:0,inv:[],worn:[],bottle:"empty",turn:0,fails:0,lastProgress:0,
+  hintStage:-1,hintDepth:0,encounter:null,dead:false,won:false,flags:{}};
+const F=S.flags; // shorthand
+
+const ITEMS={
+phone:{n:"smartphone",a:["phone","cell","cellphone","iphone","mobile"],d:"Your phone. The screen is black. 0% battery, and no charger for roughly 700 years."},
+bar:{n:"granola bar",a:["bar","granola","snack"],d:"Oats, honey, and — per the wrapper — 'Bold Berry Blast.'"},
+bottle:{n:"water bottle",a:["bottle","flask","canteen"],d:"A dented steel water bottle."},
+knife:{n:"pocket knife",a:["knife","pocketknife","blade"],d:"A folding pocket knife. Small, but sharp."},
+lighter:{n:"lighter",a:["lighter","bic"],d:"A plastic lighter, half full. In this century, basically sorcery."},
+branch:{n:"oak branch",a:["branch","stick","staff","walking stick"],d:"A stout oak branch. Good for walking, prodding, and modest self-defense."},
+spear:{n:"fishing spear",a:["spear"],d:"An oak branch whittled to a point. The stream fears you now."},
+fish:{n:"raw fish",a:["fish","trout"],d:"A silver trout. Eating it raw seems... medieval. Which, well."},
+cookedfish:{n:"cooked fish",a:["cooked fish","roast fish"],d:"Flaky, hot, and smelling wonderful."},
+yarrow:{n:"yarrow",a:["yarrow","white flowers","herb"],d:"Feathery leaves, white blooms. The old soldier's wound-herb."},
+moonwort:{n:"moonwort",a:["moonwort","blue flowers","moon herb"],d:"Pale blue petals that seem to glow at dusk. The hermit spoke of this."},
+salve:{n:"herbal salve",a:["salve","medicine","poultice","ointment"],d:"Yarrow and moonwort ground together. Strong medicine for a bad wound."},
+bread:{n:"loaf of bread",a:["bread","loaf"],d:"Dense, dark, and honest. Still warm."},
+cloak:{n:"wool cloak",a:["cloak","cape"],d:"A heavy wool cloak, patched but warm."},
+ring:{n:"signet ring",a:["ring","signet","seal"],d:"Sir Roderic's signet: a hawk over three towers. This will open doors. One door in particular."},
+flower:{n:"wildflower",a:["flower","wildflower"],d:"A cheerful pink wildflower. It has no practical use, and that is fine."}};
+
+const LOC={
+meadow:{ex:{north:"forest",east:"stream",west:"hill"},
+ d:()=>"Tall grass sways around you, loud with bees. A worn footpath runs north toward dark woods; the land dips east where you hear running water, and rises west to a hill crowned by a huge oak. A grey standing stone leans nearby."+(F.pack?"":" Your red backpack lies in the grass where you woke.")},
+hill:{ex:{east:"meadow"},
+ d:()=>"The hilltop. One enormous oak rules it, older than anything you have ever touched. Low branches invite climbing."+(F.sawCastle?" From here you can still see them: pale towers far to the north-east, and a thread of chimney smoke rising east across the stream.":" The countryside rolls away in every direction, but the oak's crown blocks the long view.")},
+forest:{ex:{south:"meadow",north:"clearing"},
+ d:()=>"Pines crowd out the sun. The path threads between roots and shadow. Something has scratched the bark at shoulder height."+(F.yarrowHere&&!F.tookYarrow?" In a patch of light, feathery white flowers grow — yarrow, if you had to guess.":"")+(F.wolfTamed?" Your wolf pads quietly at your heel.":"")},
+clearing:{ex:{south:"forest"},
+ d:()=>"A tidy clearing with a turf-roofed hut, a woodpile, and a fire ring. Smoke curls from within."+(F.metHermit?" Aldwin the hermit watches you with amused eyes.":" Someone lives here.")},
+stream:{ex:{west:"meadow",north:"marsh",east:"farm"},
+ d:()=>"A bright, fast stream over brown stones. Shallow enough to ford east, where the path continues toward the smoke you saw. Silver shapes flick in the pools. The banks are soft mud north, toward lower, greyer ground."},
+marsh:{ex:{south:"stream",east:"tower"},
+ d:()=>"The ground goes soft and sour. Pools of dark water lie between tussocks; the air hums with midges. To the east, on a rise of dry ground, a broken tower stands against the sky."+(!F.tookMoonwort?" On a hummock, pale blue flowers glow faintly — moonwort.":"")},
+farm:{ex:{west:"stream",east:"village"},
+ d:()=>"A farmhouse, a great red barn, and geese who consider you a criminal. Fields of barley stripe the hills."+(F.metFarmer?" Beornred the farmer raises a hand in greeting.":" A broad-shouldered farmer eyes you from the yard — your strange clothes most of all.")},
+village:{ex:{west:"farm",north:"road"},
+ d:()=>"Millbrook: a dozen timber houses, a stone chapel, a smithy ringing with hammer-blows, and a bake-house that smells like heaven. Villagers stare at your clothing. A wider road leaves north."},
+road:{ex:{south:"village",west:"tower",north:"gate"},
+ d:()=>"A broad old road, straight as a ruler, paved by hands long dead. A moss-grown milestone stands at the verge. North, unmistakable now, the castle rides its hill — towers, banners, the works. West, closer, the ruined watchtower."},
+tower:{ex:{east:"road",west:"marsh"},
+ d:()=>{let t="A watchtower, long ruined — one wall open to the sky, rubble and old hearth-stones below. It smells of cold ash.";
+  if(F.knightHealed)t+=" Sir Roderic sits against the wall, color returning to his face.";
+  else if(F.knightMet)t+=" The wounded knight watches you from the shadows, hand on his sword.";
+  else t+=" Something shifted in the shadows just now. You are not alone.";return t;}},
+gate:{ex:{south:"road"},
+ d:()=>"The castle gate. Walls of pale stone lean over you; a banner with a hawk over three towers snaps in the wind — the same mark as the standing stone in your meadow. Two guards in red cross their halberds across the gatehouse door, watching you approach."}};
+
+/* location item spawns handled via flags; NPC/feature text lives in handlers */
+const START_TEXT=[
+["story","..."],
+["story","Your head is pounding. There was the lab, the countdown, the light—"],
+["story","You are lying in wet grass under an enormous sky. Birdsong. No traffic. No wires. No contrails."],
+["story","You sit up. Your red backpack lies beside you in the grass."],
+["sys","(Try things like: look · take backpack · go north · climb tree · talk to farmer · eat · drink · inventory · hint)"]];
+/*APPEND_DATA_END*/
+/* ============ OUTPUT / STATUS ============ */
+const logEl=document.getElementById("log");
+function log(cls,txt){const d=document.createElement("div");d.className=cls;d.textContent=txt;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+function hearts(){let s="";for(let i=0;i<S.maxHp;i++)s+=i<S.hp?"♥":"♡";
+  document.getElementById("hearts").innerHTML=s.split("").map(c=>c==="♥"?'<span class="h">♥</span>':'<span class="e">♡</span>').join("");}
+function status(){hearts();
+  document.getElementById("timeod").textContent="☀ "+phase();
+  document.getElementById("coins").textContent="⛃ "+S.coins;
+  const names=S.inv.map(i=>ITEMS[i].n+(i==="bottle"?" ("+S.bottle+")":"")).concat(S.worn.map(i=>ITEMS[i].n+" (worn)"));
+  document.getElementById("inv").innerHTML="pack: "+(names.length?names.map(n=>"<b>"+n+"</b>").join(" · "):"(empty hands, empty pockets)");}
+function render(){ctx.clearRect(0,0,160,90);
+  if(S.dead){SCENES.dead();}else if(S.won){SCENES.win();}else{SCENES[S.loc]();}
+  document.getElementById("caption").textContent=S.dead?"...":S.won?"The castle courtyard":CAPTIONS[S.loc]+" — "+phase();
+  status();}
+function describe(){log("sys",LOC[S.loc].d());
+  const ex=Object.keys(LOC[S.loc].ex);log("dim","Paths lead: "+ex.join(", ")+".");}
+function have(id){return S.inv.includes(id)||S.worn.includes(id);}
+function lose(id){let i=S.inv.indexOf(id);if(i>=0)S.inv.splice(i,1);else{i=S.worn.indexOf(id);if(i>=0)S.worn.splice(i,1);}}
+function gain(id){S.inv.push(id);log("good","You now have: "+ITEMS[id].n+".");}
+function heal(n,why){if(S.hp>=S.maxHp){log("sys","You feel fine already."+(why?" ("+why+")":""));return;}
+  S.hp=Math.min(S.maxHp,S.hp+n);log("good","♥ +"+n+(why?" — "+why:"")+" ("+S.hp+"/"+S.maxHp+")");status();}
+function damage(n,why){S.hp-=n;log("bad","♥ -"+n+" — "+why+" ("+Math.max(0,S.hp)+"/"+S.maxHp+")");status();
+  if(S.hp<=0)die(why);}
+function die(why){S.dead=true;S.encounter=null;render();
+  log("bad","Darkness closes in. Your journey ends here — "+why+".");
+  log("story","And yet... something tugs at you, like a save point in an old game.");
+  log("sys","Type 'wake' to try again.");}
+function respawn(){S.dead=false;S.hp=3;S.loc=F.metHermit?"clearing":"meadow";S.encounter=null;
+  log("story",F.metHermit?"You wake on a straw pallet in the hermit's hut, bandaged and sore. Aldwin mutters about foolish wanderers.":"You wake in the meadow grass, aching, as if the land itself put you back where you began.");
+  render();describe();}
+function win(){S.won=true;F.won=true;render();
+  log("story","The guards study the signet — hawk over three towers — and their halberds lift.");
+  log("story","'Sir Roderic's seal! And word of Wolfsdale — the castellan must hear this at once. Come, stranger.'");
+  log("story","The gate groans open. Torchlight, woodsmoke, a courtyard full of noise and life. Somewhere above, someone who might know what the standing stones really are.");
+  log("good","═══ LEVEL 1 COMPLETE ═══");
+  log("sys","Turns taken: "+S.turn+" · Hearts remaining: "+S.hp+"/"+S.maxHp+(F.wolfTamed?" · Companion: one (1) extremely good wolf":""));
+  log("sys","LEVEL 2: WITHIN THE WALLS — coming soon.");}
+
+/* ============ HINTS ============ */
+function hintStage(){if(!F.pack)return 0;if(!F.sawCastle)return 1;if(!F.metFarmer)return 2;
+  if(!F.metHermit)return 3;if(!F.knightMet)return 4;if(!F.hasRing)return 5;return 6;}
+const HINTS=[
+["Everything you own in this world is in that pack.","Try: take backpack"],
+["When folk are lost, they climb something tall to get their bearings.","The great oak west of the meadow looks climbable. Go west, then: climb tree."],
+["Chimney smoke east across the stream means people. People mean bread — and answers.","Ford the stream east and follow the path to the farm. Talk to the farmer."],
+["The farmer spoke of a healer in the woods north of your meadow, who knows every soul hereabouts.","Go north through the dark forest, then north again to the hermit. If a wolf bars the way, remember: everything hungry can be fed."],
+["Someone was seen limping toward the old watchtower off the King's Road.","Find the ruined watchtower — west from the King's Road, or east through the marsh. Talk to whoever hides there. Bring a stout stick for marsh ground."],
+["The knight needs strong medicine: the soldier's white herb and the marsh's pale blue flower, ground together.","Gather yarrow (forest) and moonwort (marsh), then 'make salve' and 'give salve to knight'."],
+["The road runs north, and the milestone counts the miles. His ring is your key.","Go north up the King's Road to the castle gate, then: show ring."]];
+function giveHint(auto){const st=hintStage();
+  if(st!==S.hintStage){S.hintStage=st;S.hintDepth=0;}
+  log("hint",(auto?"(a thought surfaces) ":"")+HINTS[st][Math.min(S.hintDepth,1)]);
+  S.hintDepth++;S.lastProgress=S.turn;}
+
+/* ============ ENCOUNTERS ============ */
+function enterChecks(){
+  if(S.loc==="forest"){F.yarrowHere=true;
+    if(!F.wolfDone&&!F.wolfTamed){S.encounter="wolf";render();
+      log("bad","A grey shape slides from the trees and blocks the path — a wolf, ribs showing, eyes on you. It growls low.");
+      log("sys","(It looks hungry more than hateful. What do you do?)");return true;}}
+  if(S.loc==="road"&&!F.banditsDone){
+    if(F.wolfTamed){F.banditsDone=true;
+      log("story","Two rough men rise from the ditch ahead — then see the wolf at your heel. They exchange a look and melt back into the hedgerow.");
+      log("good","Traveling with a wolf has advantages.");}
+    else{S.encounter="bandits";render();
+      log("bad","Two men step from the ditch, cudgels loose in their hands. 'Toll road, friend. Coin, or a cracked crown.'");return true;}}
+  if(S.loc==="marsh"){
+    if(have("branch")||have("spear")){if(!F.marshStickMsg){F.marshStickMsg=true;
+      log("sys","You prod the ground ahead with your stick as you go, finding the firm tussocks. Slow, but safe.");}}
+    else if(Math.random()<0.4){damage(1,"the marsh swallows your leg to the thigh; you wrench free, gasping");
+      log("hint","A stout stick to probe the ground would make this crossing safer.");}}
+  if(S.loc==="tower"&&!F.knightMet){F.knightMet=true;render();
+    log("story","Steel scrapes. 'Stay back!' A man in a torn surcoat props himself against the wall, sword wavering in one hand, the other pressed to a dark-stained bandage at his side.");
+    log("story","'...You're no brigand. Brigands don't dress half so strangely.' He slumps, breathing hard. A knight — and badly hurt.");}
+  if(S.loc==="gate"&&!F.gateSeen){F.gateSeen=true;
+    log("story","The hawk-and-towers banner — you've seen that mark before, carved on the standing stone where you woke. As if the stone had been pointing here all along.");}
+  return false;}
+function encounterCmd(v,arg){
+  if(S.encounter==="wolf"){
+    if(["fight","attack","hit","kill","stab","swing","punch"].includes(v)){
+      const w=have("spear")?"spear":have("knife")?"knife":have("branch")?"branch":null;S.encounter=null;F.wolfDone=true;
+      if(w){damage(1,"the wolf's teeth graze your arm before your "+ITEMS[w].n+" drives it off");
+        if(!S.dead)log("sys","The wolf yelps and vanishes into the pines. The forest is yours — for now.");}
+      else{damage(2,"you fight bare-handed; the wolf is better at this than you");
+        if(!S.dead)log("sys","Your yelling and flailing finally convince it you're more trouble than dinner. It withdraws, unhurried.");}
+      render();return true;}
+    if(["flee","run","escape","retreat"].includes(v)){S.encounter=null;S.loc="meadow";
+      if(Math.random()<0.5)damage(1,"teeth snap at your calf as you bolt");
+      if(!S.dead){log("sys","You burst out of the treeline into the meadow, lungs burning. The wolf doesn't follow into the open.");render();describe();}
+      return true;}
+    if(v==="give"||v==="throw"||v==="feed"||v==="toss"){
+      const food=["bar","fish","cookedfish","bread"].find(f=>have(f)&&(arg===""||arg.includes(ITEMS[f].a[0])||arg.includes("food")||arg.includes("wolf")));
+      if(food){lose(food);S.encounter=null;F.wolfTamed=true;F.wolfDone=true;render();
+        log("story","You toss the "+ITEMS[food].n+" gently. The wolf flinches — then falls on it, tail low. It eats, watches you, and does not leave.");
+        log("good","When you walk on, it follows at a respectful distance. You appear to have acquired a wolf.");return true;}
+      log("sys","You have nothing it wants. Its eyes say: food, specifically.");return true;}
+    if(v==="look"||v==="examine"){log("sys","Lean, grey, wary. More starving than savage. Everything hungry can be fed.");return true;}
+    if(v==="talk"||v==="speak"){log("sys","'Good wolf. Niiice wolf.' It tilts its head. Vocabulary isn't the issue; dinner is.");return true;}
+    log("bad","The wolf growls — whatever that was, now is not the moment. (fight, flee, or give it something)");return true;}
+  if(S.encounter==="bandits"){
+    if(["fight","attack","hit","kill","stab","swing","punch"].includes(v)){S.encounter=null;F.banditsDone=true;
+      if(have("spear")){damage(1,"a cudgel catches your shoulder before your spear-point changes the conversation");
+        if(!S.dead){log("story","'Mad foreign spearman!' They scramble into the hedge. One drops a penny in his haste.");S.coins++;status();}}
+      else if(have("knife")||have("branch")){damage(2,"you give as good as you get, roughly");
+        if(!S.dead)log("story","Bloodied on both sides, they decide you're not worth the trouble and lope off north-west, toward the tower ruins.");}
+      else{damage(2,"fists against cudgels goes as expected");
+        if(!S.dead){if(S.coins>0){log("bad","They shake "+S.coins+" coin(s) out of your pockets and stroll off laughing.");S.coins=0;status();}
+          else log("story","They find your pockets empty, mutter about wasted effort, and leave you in the dust.");}}
+      render();return true;}
+    if(["flee","run","escape","retreat"].includes(v)){S.encounter=null;S.loc="village";
+      log("sys","You sprint back toward Millbrook. Laughter follows, but they don't. Bullies rarely chase past their own doorstep.");render();describe();return true;}
+    if(v==="give"||v==="pay"){if(S.coins>0){log("story","You hand over "+S.coins+" coin(s). 'Wise traveler.' They wave you through with mock courtesy.");S.coins=0;}
+      else log("story","You turn out empty pockets. They stare, sigh, and wave you past. 'Beggars robbing beggars. What a road.'");
+      S.encounter=null;F.banditsDone=true;status();return true;}
+    if(v==="talk"||v==="speak"){log("sys","'Coin or crowns, friend. Those are the options.' They seem to have rehearsed this.");return true;}
+    if(v==="look"||v==="examine"){log("sys","Two of them: ragged, hungry-looking, cudgels but no steel. Deserters or worse. They eye your strange clothes uneasily.");return true;}
+    log("bad","The bandits step closer — deal with them first. (fight, flee, or pay)");return true;}
+  return false;}
+/* ============ PARSER ============ */
+const DIRS={n:"north",north:"north",s:"south",south:"south",e:"east",east:"east",w:"west",west:"west"};
+const PLACE={forest:"forest",woods:"forest",wood:"forest",trees:"forest",meadow:"meadow",field:"meadow",
+  hill:"hill",oak:"hill",stream:"stream",river:"stream",creek:"stream",brook:"stream",ford:"stream",
+  marsh:"marsh",swamp:"marsh",bog:"marsh",farm:"farm",farmhouse:"farm",barn:"farm",
+  village:"village",town:"village",millbrook:"village",road:"road",clearing:"clearing",hut:"clearing",hermit:"clearing",
+  tower:"tower",watchtower:"tower",ruin:"tower",ruins:"tower",castle:"gate",gate:"gate"};
+const VSYN={go:"go",walk:"go",head:"go",move:"go",travel:"go",run:"flee",sprint:"flee",hike:"go",wander:"go",
+  look:"look",l:"look",examine:"examine",inspect:"examine",check:"examine",x:"examine",read:"read",study:"examine",
+  take:"take",get:"take",grab:"take",pick:"take",collect:"take",gather:"take",drop:"drop",leave:"drop",discard:"drop",
+  i:"inv",inv:"inv",inventory:"inv",pack:"inv",bag:"inv",backpack:"inv",pockets:"inv",
+  use:"use",eat:"eat",taste:"eat",devour:"eat",drink:"drink",sip:"drink",gulp:"drink",fill:"fill",boil:"boil",
+  cook:"cook",roast:"cook",fry:"cook",make:"make",craft:"make",build:"make",whittle:"make",carve:"make",grind:"make",mix:"make",
+  light:"light",burn:"light",ignite:"light",climb:"climb",descend:"climb",
+  talk:"talk",speak:"talk",say:"talk",ask:"talk",greet:"talk",hello:"talk",hi:"talk",chat:"talk",
+  give:"give",offer:"give",hand:"give",show:"show",present:"show",feed:"give",toss:"give",throw:"give",pay:"give",
+  search:"search",forage:"search",scavenge:"search",loot:"search",rummage:"search",
+  rest:"rest",sleep:"rest",nap:"rest",camp:"rest",wait:"wait",z:"wait",
+  fish:"fish",swim:"swim",wade:"swim",cross:"cross",ford:"cross",
+  buy:"buy",purchase:"buy",trade:"buy",work:"work",help:"helpv",chores:"work",labor:"work",labour:"work",
+  attack:"fight",fight:"fight",hit:"fight",kill:"fight",stab:"fight",punch:"fight",swing:"fight",
+  flee:"flee",escape:"flee",retreat:"flee",hide:"hide",sneak:"hide",
+  listen:"listen",smell:"smell",sniff:"smell",touch:"touch",feel:"touch",
+  shout:"shout",yell:"shout",scream:"shout",call:"shout",sing:"sing",whistle:"sing",hum:"sing",dance:"dance",
+  jump:"jump",hop:"jump",pray:"pray",dig:"dig",wear:"wear",don:"wear",put:"wear",remove:"unwear",doff:"unwear",
+  knock:"knock",open:"open",enter:"open",pet:"pet",pat:"pet",stroke:"pet",hug:"pet",
+  hint:"hint",hints:"hint",stuck:"hint",map:"map",where:"map",stats:"stats",health:"stats",hp:"stats",
+  wake:"wake",restart:"wake",quit:"quit",xyzzy:"xyzzy",plugh:"xyzzy",
+  cry:"cry",sob:"cry",panic:"cry",think:"think",ponder:"think",remember:"think",
+  smoke:"smoke",curse:"curse",damn:"curse",swear:"curse"};
+function findItem(arg){if(!arg)return null;
+  for(const id in ITEMS){for(const a of ITEMS[id].a.concat([ITEMS[id].n])){if(arg===a||arg.includes(a))return id;}}
+  return null;}
+function fireHere(){return F.fireLoc===S.loc;}
+const wilderness=["meadow","hill","forest","stream","marsh","road","tower"];
+
+function command(raw){
+  const clean=raw.toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\b(the|a|an|my|some|at|to|on|in|into|with|for|of|please)\b/g," ").replace(/\s+/g," ").trim();
+  if(!clean){return;}
+  log("you","> "+raw);
+  if(S.won){log("sys","Level 1 is complete — the story continues in Level 2. (You can refresh the page to play again.)");return;}
+  if(S.dead){if(VSYN[clean.split(" ")[0]]==="wake"){respawn();}else log("sys","You are, at present, dead. Type 'wake'.");return;}
+  let words=clean.split(" ");
+  let v=words[0],arg=words.slice(1).join(" ");
+  /* two-word verb fixups */
+  if(v==="pick"&&words[1]==="up"){v="take";arg=words.slice(2).join(" ");}
+  if(v==="look"&&["up","down","around","behind","north","south","east","west"].includes(words[1])){arg=words.slice(1).join(" ");}
+  if(v==="run"&&words[1]==="away"){v="flee";arg="";}
+  if(v==="get"&&words[1]==="up"){v="wait";arg="";}
+  if(DIRS[v]&&!arg){v="go";arg=DIRS[words[0]];}
+  const verb=VSYN[v];
+  if(!verb){S.fails++;
+    log("sys",["Hmm — you're not sure how to '"+v+"' here.","That doesn't seem to be a thing you can do. Yet.","You consider it, then reconsider."][S.turn%3]);
+    if(S.fails>=3){S.fails=0;giveHint(true);}
+    return;}
+  S.fails=0;
+  if(S.encounter&&encounterCmd(verb==="go"?"flee-no":verb,arg)){tick();return;}
+  if(S.encounter){log("bad",S.encounter==="wolf"?"The wolf blocks the path — deal with it first.":"The bandits block the road — deal with them first.");return;}
+  (HANDLERS[verb]||(()=>log("sys","Nothing happens.")))(arg,words);
+  tick();}
+
+/* ============ VERB HANDLERS ============ */
+const HANDLERS={
+go(arg){const dir=DIRS[arg]||DIRS[arg.split(" ")[0]];
+  let dest=null;
+  if(dir){dest=LOC[S.loc].ex[dir];if(!dest){log("sys","No path leads "+dir+" from here.");return;}}
+  else{const pk=Object.keys(PLACE).find(k=>arg.includes(k));
+    if(pk){const target=PLACE[pk];
+      const d2=Object.entries(LOC[S.loc].ex).find(e=>e[1]===target);
+      if(S.loc===target){log("sys","You are already there.");return;}
+      if(d2)dest=d2[1];else{log("sys","You can't get there directly from here."+(F.sawCastle?" (try 'map')":""));return;}}
+    else{log("sys","Go where? (north, south, east, west — or a place you can see)");return;}}
+  if(S.loc==="stream"&&dest==="farm")log("sys","You pick across the ford, boots full of cold water, and climb the far bank.");
+  if(S.loc==="farm"&&dest==="stream")log("sys","Back across the cold ford you go.");
+  S.loc=dest;F.fireLoc=null;render();describe();enterChecks();},
+look(arg){
+  if(arg.startsWith("up")){const t={hill:"Through the oak's crown: buzzards turning slow circles in an empty sky. No planes. No contrails. Nothing man-made at all — that absence keeps startling you.",
+    forest:"The pines close overhead like a roof. Somewhere up there a woodpecker is hard at work.",
+    tower:"The broken stair spirals up to open sky. A crow regards you from the shattered top with clear disapproval.",
+    gate:"Walls lean over you. Between the battlements, helmeted heads — you are being watched by at least four bored professionals.",
+    marsh:"Grey sky, grey midges. One heron crosses, unhurried, like it owns the place.",
+    village:"Thatched roofs, drifting chimney smoke, and the chapel's little stone tower with one green-bronze bell."}[S.loc]
+    ||"Sky. An enormous amount of entirely unfamiliar, un-crossed, un-wired sky.";log("sys",t);return;}
+  if(arg.startsWith("down")){const t={hill:"Grass, roots, and your own two very anachronistic sneakers.",
+    stream:"Clear water over brown pebbles. Small silver fish hold against the current, smug.",
+    marsh:"Dark water between tussocks. Your next step matters more here than most places.",
+    gate:"Cobbles worn smooth by centuries of feet, hooves, and cartwheels."}[S.loc]||"Your shoes. Still the strangest objects in this entire century.";log("sys",t);return;}
+  if(arg.startsWith("around")||arg===""){render();describe();return;}
+  HANDLERS.examine(arg);},
+examine(arg){
+  if(!arg){render();describe();return;}
+  const it=findItem(arg);
+  if(it&&(have(it)||true)){
+    if(have(it)){log("sys",ITEMS[it].d+(it==="bottle"?" It is currently "+S.bottle+".":""));return;}}
+  if(arg.includes("stone")&&S.loc==="meadow"){F.stoneRead=true;
+    log("story","The standing stone is ancient, lichen-eaten. But a carving survives: a hawk over three towers. Below, nearly worn away, a pointing hand — aimed north-east.");
+    log("hint","Somebody wanted travelers here to go somewhere.");return;}
+  if((arg.includes("milestone")||arg.includes("stone")||arg.includes("marker"))&&S.loc==="road"){
+    log("story","The milestone's mossy face reads: CASTELLVM · M III. Castle, three miles. This road knows exactly where it's going.");return;}
+  if(arg.includes("tree")||arg.includes("oak")){log("sys",S.loc==="hill"?"The oak is vast — five people couldn't link arms around it. The low branches form a ladder that practically begs to be climbed.":"Just trees. The impressive one is on the hill.");return;}
+  if(arg.includes("wolf")&&F.wolfTamed){log("good","Your wolf. Grey, dignified, and increasingly convinced you are its personal chef. You've been calling it Sandwich, after the food that won its heart.");return;}
+  if(arg.includes("guard")&&S.loc==="gate"){log("sys","Red livery, polished halberds, expressions of men four hours into an eight-hour shift. They watch you back.");return;}
+  if(arg.includes("banner")&&S.loc==="gate"){log("story","A hawk over three towers — the same mark as the standing stone in your meadow. Whoever raised that stone served this castle.");return;}
+  if(arg.includes("knight")&&S.loc==="tower"){log("sys",F.knightHealed?"Sir Roderic — color back in his face, gratitude in it too.":"Fever-bright eyes, a soaked bandage at his ribs. Without help, he does not have many days left.");return;}
+  if(it){log("sys",ITEMS[it].d);return;}
+  log("sys","You study it, and learn roughly what you already knew.");},
+read(arg){if(arg.includes("phone")){log("sys","The screen offers you a perfect black mirror. In it: a tired time traveler.");return;}
+  HANDLERS.examine(arg||"stone");},
+take(arg){
+  if(S.loc==="meadow"&&!F.pack&&(arg.includes("pack")||arg.includes("bag")||arg==="")){F.pack=true;
+    S.inv.push("phone","bar","bottle","knife","lighter");
+    log("good","You shoulder the backpack and inventory your entire earthly estate: a dead smartphone, a granola bar, a steel water bottle, a pocket knife, and a lighter.");
+    log("story","Not nothing. In this century, the lighter alone might be witchcraft.");return;}
+  const it=findItem(arg);
+  if(it&&have(it)){log("sys","You already have the "+ITEMS[it].n+".");return;}
+  if(it==="branch"&&S.loc==="hill"&&!F.tookBranch){F.tookBranch=true;gain("branch");return;}
+  if(it==="yarrow"&&S.loc==="forest"&&F.yarrowHere&&!F.tookYarrow){F.tookYarrow=true;gain("yarrow");return;}
+  if(it==="moonwort"&&S.loc==="marsh"&&!F.tookMoonwort){F.tookMoonwort=true;gain("moonwort");
+    log("sys","The petals really do glow, faintly, like the last second of a dying screen.");return;}
+  if(it==="flower"&&S.loc==="meadow"&&!F.tookFlower){F.tookFlower=true;gain("flower");return;}
+  if(arg.includes("water")){HANDLERS.fill("bottle");return;}
+  if(!arg){log("sys","Take what?");return;}
+  log("sys","There's no "+arg+" here you can take.");},
+drop(arg){const it=findItem(arg);if(it&&have(it)){lose(it);log("sys","You set down the "+ITEMS[it].n+". The middle ages will look after it.");}
+  else log("sys","You aren't carrying that.");},
+inv(){status();const n=S.inv.length+S.worn.length;
+  log("sys",n?"You carry: "+S.inv.map(i=>ITEMS[i].n+(i==="bottle"?" ("+S.bottle+")":"")).join(", ")+(S.worn.length?" · wearing: "+S.worn.map(i=>ITEMS[i].n).join(", "):"")+" · coins: "+S.coins:"You have nothing but the clothes you woke in.");},
+use(arg){const it=findItem(arg);
+  if(it==="phone"){HANDLERS.phoneJoke();return;}
+  if(it==="lighter"){HANDLERS.light("fire");return;}
+  if(it==="yarrow"){if(!have("yarrow"))return log("sys","You have no yarrow.");
+    lose("yarrow");heal(2,"you chew yarrow to paste and press it to your scrapes — bitter, but the sting fades");F.tookYarrow=false;return;}
+  if(it==="salve"){if(!have("salve"))return log("sys","No salve in your pack.");
+    if(S.loc==="tower"&&F.knightMet&&!F.knightHealed){HANDLERS.give("salve knight");return;}
+    log("sys","Strong medicine — maybe too strong to waste on yourself."+(F.knightMet?" The knight at the tower is far worse off than you.":"")+" (Or 'use salve on me' if you insist.)");
+    if(arg.includes("me")||arg.includes("self")){lose("salve");heal(3,"the salve works like a small miracle");}return;}
+  if(it==="knife"&&arg.includes("branch")){HANDLERS.make("spear");return;}
+  if(it==="bar"||it==="bread"||it==="fish"||it==="cookedfish"){HANDLERS.eat(arg);return;}
+  if(it==="bottle"){HANDLERS.drink("bottle");return;}
+  if(it==="cloak"){HANDLERS.wear("cloak");return;}
+  if(it==="ring"){if(S.loc==="gate"){HANDLERS.show("ring");return;}log("sys","You turn the signet in your fingers. Hawk over three towers. Show it where towers matter.");return;}
+  log("sys","You fiddle with it thoughtfully. Nothing obvious happens.");},
+phoneJoke(){F.phoneTries=(F.phoneTries||0)+1;
+  const m=["You hold the power button. Nothing. You hold it longer, with feeling. Still nothing.",
+  "Zero percent. You wonder how many bars you'd have anyway. You suspect the answer is 'none, for seven hundred years.'",
+  "You consider explaining 'phone' to the locals and decide you enjoy not being tried for witchcraft.",
+  "Maybe a potato... no. Wrong century for potatoes too, actually."][Math.min(F.phoneTries-1,3)];log("sys",m);},
+eat(arg){const it=findItem(arg)||( ["cookedfish","bread","bar","fish"].find(f=>have(f)) );
+  if(!it||!have(it))return log("sys","Nothing edible in hand."+(S.loc==="stream"?" The stream flickers with fish, though.":""));
+  if(it==="bar"){lose("bar");heal(1,"Bold Berry Blast, the last one in the world");return;}
+  if(it==="bread"){lose("bread");heal(2,"dense, honest bread");return;}
+  if(it==="cookedfish"){lose("cookedfish");heal(2,"hot flaky trout, eaten with your fingers");return;}
+  if(it==="fish"){lose("fish");if(Math.random()<0.4){damage(1,"raw stream trout disagrees with a modern stomach");}
+    else heal(1,"raw trout — survivable, briefly fashionable in your century");return;}
+  if(it==="yarrow"){HANDLERS.use("yarrow");return;}
+  log("sys","You decide against eating that.");},
+drink(arg){
+  if(arg.includes("bottle")||arg===""){
+    if(S.bottle==="empty"){if(S.loc==="stream"||S.loc==="village"){HANDLERS.fill("");return;}return log("sys","The bottle is empty.");}
+    if(S.bottle==="boiled water"){S.bottle="empty";heal(1,"clean boiled water — civilization's greatest trick");return;}
+    if(S.bottle==="stream water"){S.bottle="empty";status();if(Math.random()<0.25)damage(1,"something in that water was alive and opinionated");
+      else log("sys","Cold and sweet. Probably fine. Probably.");return;}
+    if(S.bottle==="marsh water"){S.bottle="empty";status();damage(1,"marsh water. Why. Why did you do that");return;}}
+  if(S.loc==="stream"){if(Math.random()<0.25)damage(1,"you drink straight from the stream; your gut files a complaint");
+    else log("sys","You drink from the stream. Cold, mineral, probably fine. (Boiling is safer.)");return;}
+  if(S.loc==="village"){heal(1,"clean well water, drawn up cold");return;}
+  if(S.loc==="marsh"){damage(1,"you drink marsh water. The marsh is flattered but your body is not");return;}
+  log("sys","Nothing to drink here."+(have("bottle")?" Your bottle is "+S.bottle+".":""));},
+fill(){if(!have("bottle"))return log("sys","You'd need the bottle for that.");
+  if(S.loc==="stream"){S.bottle="stream water";log("sys","You fill the bottle from the stream. Boiling it over a fire would make it safe.");status();return;}
+  if(S.loc==="marsh"){S.bottle="marsh water";log("sys","You fill the bottle with brown marsh water. You immediately have doubts.");status();return;}
+  if(S.loc==="village"){S.bottle="boiled water";log("sys","You fill the bottle at the village well. Clean and cold.");status();return;}
+  log("sys","No water here worth bottling.");},
+boil(){if(!have("bottle")||S.bottle==="empty")return log("sys","You need water in the bottle first.");
+  if(!fireHere())return log("sys","You need a fire. ('make fire' — you do own a lighter.)");
+  if(S.bottle==="marsh water"){log("sys","You boil the marsh water. It is now sterile marsh water. Progress, technically.");S.bottle="boiled water";status();return;}
+  S.bottle="boiled water";status();log("good","You nestle the steel bottle in the embers until it steams. Safe to drink — and worth a heart when you do.");},
+light(arg){if(!have("lighter"))return log("sys","Nothing to make fire with.");
+  if(["stream","marsh","village","gate"].includes(S.loc))return log("sys",S.loc==="village"?"The villagers have fires already, and opinions about arson.":"Too wet or too watched for a campfire here.");
+  if(fireHere())return log("sys","Your fire crackles on.");
+  F.fireLoc=S.loc;
+  log("good","Flick. Flame on the first try — the little lighter earns its keep. Soon a proper campfire crackles.");
+  log("sys","(A fire lets you boil water, cook fish, and rest warm.)");
+  if(!F.fireMarvel){F.fireMarvel=true;log("story","You think about how long fire took the first time around, and feel briefly like a god. A small god. Of camping.");}},
+make(arg){
+  if(arg.includes("spear")||arg.includes("sharp")){
+    if(!have("branch"))return log("sys","You'd need a stout branch. The old oak on the hill sheds them.");
+    if(!have("knife"))return log("sys","You'd need a blade to whittle with.");
+    lose("branch");gain("spear");log("sys","You sit and whittle the oak branch to a wicked point. Twenty minutes of work; several centuries of technique.");return;}
+  if(arg.includes("salve")||arg.includes("medicine")||arg.includes("poultice")){
+    if(!have("yarrow")||!have("moonwort"))return log("sys","The hermit's recipe needs both yarrow (forest) and moonwort (marsh)."+(have("yarrow")?" You have the yarrow.":have("moonwort")?" You have the moonwort.":""));
+    lose("yarrow");lose("moonwort");gain("salve");
+    log("story","You grind the white and blue flowers together between river-stones, the way Aldwin described. The paste smells sharp and clean — like something that means business.");return;}
+  if(arg.includes("fire")||arg.includes("camp")){HANDLERS.light("fire");return;}
+  log("sys","You're not sure how to make that with what you carry. (spear? salve? fire?)");},
+cook(){if(!have("fish"))return log("sys","Nothing to cook."+(S.loc==="stream"?" The fish are right there, being smug.":""));
+  if(!fireHere())return log("sys","You need a fire first. ('make fire')");
+  lose("fish");gain("cookedfish");log("good","You roast the trout on a green stick. The smell alone is worth a heart.");},
+climb(arg){
+  if(S.loc==="hill"){if(!F.sawCastle){F.sawCastle=true;render();
+      log("story","You climb — bark rough under your hands, higher than is strictly sensible — and the land opens like a map.");
+      log("story","East, across the stream: chimney smoke. A farm, maybe a village beyond.");
+      log("story","And north-east, far off but unmistakable: pale stone towers on a hill. A castle — a real one, banners and all. Where there's a castle, there's law, food, and someone in charge who might make sense of what happened to you.");
+      log("hint","If any place in this world holds answers, it's that castle.");return;}
+    if(phase()==="night"&&Math.random()<0.3){damage(1,"climbing a tree in the dark; a branch had other plans");return;}
+    log("sys","From the crown you check your bearings again: castle north-east, smoke east across the stream. Still real, still there.");return;}
+  if(S.loc==="tower"){if(Math.random()<0.3){damage(1,"the ruined stair gives way; you ride a small avalanche of masonry down");return;}
+    log("sys","You pick up the broken stair as far as it goes. From the gap: the marsh west, the road east, and the castle north — closer now. You can make out the gatehouse.");return;}
+  if(S.loc==="gate"){log("bad","A guard clears his throat with tremendous professional menace. You climb down.");return;}
+  log("sys","Nothing worth climbing here."+(F.sawCastle?"":" The oak on the hill, though..."));},
+talk(arg){
+  if(S.loc==="clearing"){
+    if(!F.metHermit){F.metHermit=true;render();
+      log("story","The hut door opens before you knock. A small, wind-dried old man looks you over — shoes, hoodie, all of it — and nods as if confirming a suspicion.");
+      log("story","'Aldwin,' he says. 'Herbs and hedge-wisdom. And you're a long way from home — further than most, I'd wager. Sit. There's stew.'");
+      if(S.hp<S.maxHp){S.hp=S.maxHp;status();log("good","♥ The stew restores you completely. It contains at least one ingredient you choose not to ask about.");}
+      log("story","He talks as you eat: of the castle north-east ('present yourself, or be taken for a spy — the reeve is not a subtle man'), and of a rumor: a wounded rider, dragging himself to the old watchtower two days past. 'None have dared check. Brigands, they say.'");
+      log("story","'If you find him — yarrow from the forest, moonwort from the marsh, ground to a salve. Remember it. That knowledge has bought me forty years of dinners.'");
+      F.knowSalve=true;return;}
+    log("sys","Aldwin: '"+(!F.knightMet?"The watchtower, boy. West off the King's road, or east past the marsh. Take a stout stick for the marsh ground.":!F.hasRing?"Yarrow, moonwort, grind them well. The man's life is in your pockets.":"The road runs north and the gate has eyes. Show them something they respect.")+"'");return;}
+  if(S.loc==="farm"){
+    if(!F.metFarmer){F.metFarmer=true;render();
+      log("story","The farmer plants his pitchfork and looks you up and down. 'Beornred,' he offers finally. 'And you'd be — shipwrecked? Cursed? Those are strange clothes for walking.'");
+      log("story","You give the least insane version of the truth. He chews it over. 'Here's what matters: strangers must present themselves to the lord at the castle. Wander unclaimed and the reeve will take you for a spy — and spies hang.'");
+      log("story","'It's north-east, past the village, up the King's Road. And if you want bread for the road, there's work here for willing hands.' (try: work)");
+      log("hint","So that's the shape of it: reach the castle, or hang around — in the worst sense.");return;}
+    log("sys","Beornred: '"+(!F.choresDone?"Work's still here if you want bread and a cloak for it.":!F.hasRing?"Mind the road past dark — men were robbed there this se'nnight.":"Off to the castle, then? Tell them honest folk sent you.")+"'");return;}
+  if(S.loc==="village"){F.villageTalk=(F.villageTalk||0)+1;
+    const r=["A woman selling eggs: 'Soldiers came through Tuesday — seeking the king's messenger, gone missing on the road. Reward, they said.'",
+      "The blacksmith, between hammer-blows: 'Castle's three mile north. Don't walk it after dark, friend — men have lost purses and teeth.'",
+      "A boy chasing a goose: 'Are you a foreigner? You talk funny. The castle has a REAL WIZARD. Probably.'",
+      "The baker: 'Bread's a penny. You look like you've been dragged through three counties.'"];
+    log("story",r[(F.villageTalk-1)%4]);return;}
+  if(S.loc==="tower"&&F.knightMet){
+    if(F.knightHealed){log("story","Roderic: 'The salve holds. I'll walk in a day — but the message cannot wait a day. You carry my ring and my errand. Go north, friend. Tell them: Wolfsdale pass is taken.'");return;}
+    log("story","The knight speaks through his teeth: 'Roderic. King's messenger. Set upon at Wolfsdale pass — brigands hold it now, and the castle must be told.' He grimaces at his side. 'But I cannot ride. Can barely stand. If you know any physic... help me, and I'll see you owed.'");
+    if(F.knowSalve)log("hint","Yarrow and moonwort, ground together. You know the recipe.");
+    else log("hint","You'd need medicine — and the knowledge to make it. Someone hereabouts must know herbs.");return;}
+  if(S.loc==="gate"){
+    if(F.hasRing){win();return;}
+    log("story","A guard looks you over — twice, the second time slower. 'State your business. None pass masterless and unknown. Bring a token, a name, or a lord's business — or bide outside.'");
+    log("hint","You need something these gates respect: a seal, a name, an errand.");return;}
+  if(F.wolfTamed){log("sys","You confer with the wolf. The wolf maintains a dignified silence, which you choose to read as agreement.");return;}
+  log("sys","You say a few words aloud. The countryside declines to answer, but it was nice to hear a voice — even yours.");},
+give(arg){
+  if(S.loc==="tower"&&F.knightMet&&!F.knightHealed&&(arg.includes("salve")||arg.includes("medicine"))){
+    if(!have("salve"))return log("sys","You don't actually have the salve yet. (make salve — with yarrow and moonwort)");
+    lose("salve");F.knightHealed=true;F.hasRing=true;S.inv.push("ring");render();
+    log("story","You clean the wound as best you can and pack it with the salve. Roderic hisses, then — slowly — breathes easier. Some awful gray leaves his face.");
+    log("story","'You have a healer's hands and a stranger's shoes. Good enough.' He works the signet from his finger — a hawk over three towers.");
+    log("good","You now have: signet ring.");
+    log("story","'Take this to the castle gate. Show it, and say: WOLFSDALE PASS IS TAKEN. They will open for the ring. What follows will be better for you than it will be for the brigands.'");
+    log("hint","There it is, plainly: north, up the King's Road, ring in hand.");return;}
+  if(S.loc==="tower"&&F.knightMet&&!F.knightHealed&&(arg.includes("yarrow")||arg.includes("moonwort"))){
+    log("sys","Roderic shakes his head. 'Half a remedy. The hermit-folk grind two herbs for wounds like this — white and blue together.'");return;}
+  if(arg.includes("flower")&&have("flower")){
+    if(S.loc==="clearing"&&F.metHermit){lose("flower");log("story","Aldwin accepts the wildflower with complete seriousness and sets it in a cup. 'The last man to bring me a flower became a bishop. No promises.'");return;}
+    if(S.loc==="farm"&&F.metFarmer){lose("flower");log("story","Beornred blinks at the flower, then jerks his head at the farmhouse. 'Give it to the wife — she'll feed you for it.' She does. ");heal(1,"a bowl of pottage, payment for one flower");return;}}
+  if(F.wolfTamed&&(arg.includes("wolf")||arg.includes("dog")||arg.includes("sandwich"))){
+    const food=["fish","cookedfish","bread","bar"].find(f=>have(f));
+    if(food){lose(food);log("good","The wolf accepts the "+ITEMS[food].n+" with the gravity of a knight accepting a sword. Its loyalty, already total, somehow increases.");}
+    else log("sys","The wolf checks your hands, finds them empty, and forgives you. Mostly.");return;}
+  log("sys","Give what to whom? (e.g., 'give salve to knight')");},
+show(arg){
+  if(S.loc==="gate"&&(arg.includes("ring")||arg==="")&&F.hasRing){win();return;}
+  if(S.loc==="gate")return log("sys","You display your "+(arg||"empty hands")+". The guards remain professionally unmoved.");
+  const it=findItem(arg);log("sys",it&&have(it)?"You hold up the "+ITEMS[it].n+". The audience is limited but attentive.":"Show what?");},
+search(arg){
+  if(S.loc==="stream"&&!F.streamCoin){F.streamCoin=true;S.coins++;status();
+    log("good","Grubbing in the gravel, your fingers close on something round: a small silver penny, stamped with a stern face. One (1) coin.");return;}
+  if(S.loc==="forest"){F.yarrowHere=true;log("sys",F.tookYarrow?"More scratched bark, old tracks, pine needles all the way down.":"Among the roots you spot feathery white flowers — yarrow, the wound-herb.");return;}
+  if(S.loc==="marsh"){log("sys",F.tookMoonwort?"Mud, midges, and menace. The marsh keeps its remaining secrets.":"Picking between pools, you find the pale blue moonwort glowing on its hummock.");return;}
+  if(S.loc==="tower"&&!F.towerCoin){F.towerCoin=true;S.coins++;status();
+    log("good","Under a fallen lintel: a rotted purse, and in it one coin the brigands missed. One (1) coin.");return;}
+  if(S.loc==="meadow"){log("sys","Grass, bees, wildflowers, one standing stone with something carved on it. (examine stone)");return;}
+  log("sys","You poke about and find the usual amount of nothing.");},
+work(){if(S.loc!=="farm")return log("sys","No one here is hiring."+(F.metFarmer?" Beornred at the farm was.":""));
+  if(!F.metFarmer)return log("sys","Talk to the farmer first — he doesn't know you from a horse thief.");
+  if(F.choresDone)return log("sys","You've done your work here. Beornred's respect, once earned, stays earned.");
+  F.choresDone=true;S.turn+=3;
+  log("story","You haul water, muck the byre, and stack a cart of hay. It takes hours and finds muscles you didn't know you'd been ignoring.");
+  gain("bread");gain("cloak");
+  log("story","Beornred pays in a dark loaf and an old wool cloak. 'Nights are cold for castle-walkers,' he says, which is farmer for 'I like you.'");},
+helpv(arg){if(arg.includes("farmer")||S.loc==="farm"&&arg===""){HANDLERS.work();return;}
+  log("sys","Commands: go [direction] · look / examine [thing] · take / drop · inventory · talk · give/show [item] · eat / drink / fill / boil · make [spear/salve/fire] · fish · climb · search · rest · work · fight / flee · hint");
+  log("sys","There are far more verbs than these. When in doubt, try the human thing.");},
+buy(arg){if(S.loc!=="village")return log("sys","No market out here.");
+  if(arg.includes("bread")||arg===""){if(S.coins<1)return log("sys","The baker is sympathetic but firm: bread is a penny. (Search likely places — or work for it at the farm.)");
+    S.coins--;gain("bread");log("sys","One penny, one loaf. The baker throws in local gossip: the castle seeks news of a missing messenger.");status();return;}
+  log("sys","The village sells bread, mostly. The blacksmith might look at your knife. (talk to villagers for more)");},
+fish(){if(S.loc!=="stream")return log("sys","No fish here."+(S.loc==="marsh"?" Nothing you'd want to eat, anyway.":""));
+  if(have("spear")){if(F.fishCaught&&Math.random()<0.4)return log("sys","The trout have wised up. Give them a turn to forget you.");
+    F.fishCaught=true;gain("fish");log("sys","Patience, stillness, strike. A silver trout thrashes on your spear-point. The stream's smugness is measurably reduced.");return;}
+  log("sys","You snatch at fish with bare hands and achieve comedy. A spear would change everything. (make spear — branch + knife)");},
+swim(){if(S.loc==="stream"){log("sys","You wade in. It is exactly as cold as it looks — a full-body ice bath with a current.");
+  if(phase()==="night")damage(1,"a midnight swim; the cold takes its tax");return;}
+  if(S.loc==="marsh"){damage(1,"you attempt to swim in a marsh. The marsh wins on points");return;}
+  log("sys","Not enough water here, thankfully.");},
+cross(){if(S.loc==="stream"){HANDLERS.go("east");return;}log("sys","Nothing to cross here.");},
+rest(){if(S.encounter)return;
+  const safe=["clearing","farm","village"].includes(S.loc)||fireHere();
+  if(phase()==="night"&&!safe&&!have("cloak")&&wilderness.includes(S.loc)){
+    S.turn+=6;damage(1,"a night in the open, shivering until dawn");
+    if(!S.dead)log("hint","A cloak, a fire, or a roof would make nights survivable.");return;}
+  S.turn+=6;heal(1,safe?"deep sleep somewhere warm":"rough sleep, but sleep");
+  log("sys","Hours pass. It is now "+phase()+".");render();},
+wait(){log("sys","You wait. The "+phase()+" continues around you at a stately medieval pace.");},
+fight(){log("sys","You shadow-box briefly. The air puts up no resistance. Nothing here needs fighting right now.");},
+flee(){log("sys","You jog a short distance for no reason. Cardio is timeless.");},
+hide(){log("sys",S.loc==="forest"?"You crouch behind a pine. You are, you feel, extremely hidden. A squirrel disagrees loudly.":"You duck low. Nothing was looking for you, but preparedness is a virtue.");},
+listen(){const t={meadow:"Bees, wind, larks — and underneath it all, an absence you finally place: no engine, anywhere, in the whole world.",
+  forest:"A woodpecker. Small rustlings. Once, far off, a long howl that raises your neck hair.",
+  stream:"Water over stones, arguing pleasantly with itself.",marsh:"Sucking mud, midge-whine, and a bittern booming like a ghost's foghorn.",
+  village:"Hammer on anvil, geese, church bell, gossip.",farm:"Geese filing complaints. A dog answering them.",
+  road:"Wind on old stone. Your own feet, unusually loud.",tower:"Wind through broken masonry"+(F.knightMet&&!F.knightHealed?", and labored breathing from the shadows":""),
+  gate:"Chains, boots on battlements, a whole busy world just past the door.",clearing:"A kettle, always somehow near boiling.",hill:"Wind through one enormous tree, like slow surf."}[S.loc];
+  log("sys",t);},
+smell(){const t={marsh:"Rot, mud, and regret.",village:"Baking bread over woodsmoke over livestock. Weighted average: wonderful.",
+  farm:"Hay, animals, honest dirt.",clearing:"Stew and herb-smoke.",forest:"Resin and cold shade."}[S.loc]||"Green things and clean wind. The whole world smells like a national park.";
+  log("sys",t);},
+touch(){log("sys","Real. All of it, disturbingly real.");},
+shout(arg){if(S.loc==="gate"){log("sys","You shout up at the battlements. A guard leans out: 'AND THE SAME TO YOU, FRIEND.' Procedure resumes.");return;}
+  log("sys","'"+(arg?arg.toUpperCase():"HELLO")+"!' Your voice rolls away over the countryside. Some crows relocate, offended.");},
+sing(){log("sys",["You sing the only songs you know, which will not exist for centuries. Technically, you are now history's most avant-garde musician.",
+  "You attempt a medieval-sounding tune. "+(F.wolfTamed?"The wolf howls along, pitch-perfect, showing you up completely.":"A bird joins in, out of pity.")][F.sang?1:0]);F.sang=true;},
+dance(){log("sys","You dance a small, private dance. "+(F.wolfTamed?"The wolf watches with what you choose to interpret as respect.":"The centuries between you and embarrassment offer real freedom."));},
+jump(){log("sys","You jump. Gravity works the same in every century. Reassuring, somehow.");},
+pray(){if(S.loc==="village"&&!F.prayed){F.prayed=true;heal(1,"quiet minutes in the cool stone chapel; something in you unclenches");return;}
+  log("sys","You send a few words upward — to God, to physics, to whoever handles time travel complaints. The sky is noncommittal but you feel slightly better.");},
+dig(arg){if(S.loc==="meadow"){log("sys","You turn up rich black earth and one indignant worm. Bait, if you were desperate. You are not yet worm-desperate.");return;}
+  if(S.loc==="marsh"){log("sys","The hole fills with brown water while you watch. The marsh does not want holes.");return;}
+  log("sys","You scratch at the ground and find dirt, which is what's usually in there.");},
+wear(arg){if(arg.includes("cloak")&&have("cloak")){if(S.worn.includes("cloak"))return log("sys","Already wrapped.");
+    lose("cloak");S.worn.push("cloak");status();log("good","You wrap the wool cloak around you. Warm — and you blend in. Fewer stares already.");return;}
+  log("sys","Not something you can wear.");},
+unwear(arg){if(S.worn.includes("cloak")){S.worn.splice(S.worn.indexOf("cloak"),1);S.inv.push("cloak");status();log("sys","You bundle the cloak into your pack.");return;}
+  log("sys","You're wearing your regular, chronologically scandalous clothes.");},
+knock(){if(S.loc==="clearing"){log("sys",F.metHermit?"'It's open, it's always open,' Aldwin calls.":"Knuckles on wood — and the door opens before the second knock. (talk)");return;}
+  if(S.loc==="gate"){log("sys","You knock politely on the castle gate. Somewhere above, a guard makes a sound suspiciously like a snort.");return;}
+  log("sys","You knock on the nearest solid object. It holds up its end of the interaction.");},
+open(){if(S.loc==="gate"){log("sys","The gate is barred and several tons heavy. Persuasion beats force here. (talk / show)");return;}
+  log("sys","Nothing here opens that isn't already open.");},
+pet(arg){if(F.wolfTamed){log("good","You scratch the wolf behind the ears. Its leg thumps. Somewhere, the concept of 'dog' moves one step closer to existing.");return;}
+  if(S.loc==="farm"){log("sys","The farm dog accepts your affection, then immediately betrays you to the geese.");return;}
+  log("sys","Nothing pettable in range. A tragedy, frankly.");},
+hint(){giveHint(false);},
+map(){let m="In your head, the map so far: the meadow where you woke (standing stone), the oak hill west, the stream east";
+  if(F.metFarmer)m+=", the farm and Millbrook village beyond the ford";
+  if(F.metHermit)m+=", the hermit's clearing north through the dark forest";
+  if(F.knightMet)m+=", the ruined watchtower between marsh and road";
+  m+=F.sawCastle?". And north-east above it all: the castle, at the end of the King's Road.":". Beyond that — you'd need a better vantage point.";
+  log("sys",m);},
+stats(){log("sys","Hearts: "+S.hp+"/"+S.maxHp+" · coins: "+S.coins+" · turns: "+S.turn+" · time: "+phase()+(F.wolfTamed?" · wolf: yes (excellent)":""));},
+think(){const st=hintStage();
+  log("story",["Lab. Countdown. Light. Grass. In that order. Cause and effect are on thin ice, but here you are — and 'here' needs a plan.",
+  "First rule of being lost: get high, get bearings.","People. You need people — food, information, somewhere to belong before someone decides you're a problem.",
+  "The castle keeps coming up. Everyone here orbits it: law, safety, answers.","A missing messenger, a wounded knight, a road that counts miles to a castle. These are the same story, and you're in it now.",
+  "Heal the knight. Everything runs through that.","Ring. Road. North. Say 'Wolfsdale pass is taken.' You have a purpose in this century, and it's three miles long."][Math.min(st+1,6)]);},
+cry(){log("sys","You allow yourself sixty seconds of entirely justified panic. Then you wipe your face. Right. Onward.");},
+smoke(){log("sys","Wrong sort of vice for the wrong sort of century. The air here is the cleanest you've ever breathed — savor that instead.");},
+curse(){log("sys","You employ several words that won't be invented for centuries. The relief is real, and history is unharmed.");},
+xyzzy(){log("hint","A hollow voice whispers: 'Wrong adventure, friend. But the old magic words are always honored here.' ♥");S.hp=Math.min(S.maxHp,S.hp+1);status();},
+quit(){log("sys","There's no quitting the fourteenth century, sadly. But you can just close the tab — the century will wait.");},
+wake(){log("sys","You are already awake. Painfully, medievally awake.");}
+};
+/*APPEND_PARSER_END*/
+/* ============ TURN TICK / GAME LOOP ============ */
+function tick(){if(S.dead||S.won)return;
+  const before=phase();S.turn++;
+  if(phase()!==before){render();
+    if(phase()==="night")log("sys","Night falls — proper darkness, the kind your century forgot. Cold creeps in."+((have("cloak")||S.worn.includes("cloak")||fireHere())?"":" You are not dressed for this."));
+    if(phase()==="dawn")log("sys","Dawn — grey, then gold. You made it to another medieval morning.");}
+  if(phase()==="night"&&wilderness.includes(S.loc)&&!S.worn.includes("cloak")&&!fireHere()&&Math.random()<0.15){
+    damage(1,"the night cold gnaws through your thin modern clothes");
+    if(!S.dead)log("hint","Cloak, campfire, or a roof — pick at least one, before the night picks for you.");}
+  /* stuck-detector: gentle nudge if no story progress for a while */
+  const st=hintStage();
+  if(st!==F.lastStage){F.lastStage=st;S.lastProgress=S.turn;}
+  else if(S.turn-S.lastProgress>=14){S.lastProgress=S.turn;giveHint(true);}
+  render();}
+
+/* ============ INPUT ============ */
+const cmdEl=document.getElementById("cmd");
+const history=[];let hIdx=-1;
+function submit(){const t=cmdEl.value.trim();if(!t)return;
+  history.unshift(t);hIdx=-1;cmdEl.value="";command(t);}
+cmdEl.addEventListener("keydown",e=>{
+  if(e.key==="Enter")submit();
+  else if(e.key==="ArrowUp"){if(hIdx<history.length-1){hIdx++;cmdEl.value=history[hIdx];}e.preventDefault();}
+  else if(e.key==="ArrowDown"){if(hIdx>0){hIdx--;cmdEl.value=history[hIdx];}else{hIdx=-1;cmdEl.value="";}e.preventDefault();}});
+document.getElementById("gobtn").addEventListener("click",submit);
+document.getElementById("screenwrap").addEventListener("click",()=>cmdEl.focus());
+
+/* ============ START ============ */
+render();
+let d=0;const iv=setInterval(()=>{if(d>=START_TEXT.length){clearInterval(iv);describe();cmdEl.focus();return;}
+  log(START_TEXT[d][0],START_TEXT[d][1]);d++;},650);
+/*APPEND_LOOP_END*/
+</script>
+</body>
+</html>
